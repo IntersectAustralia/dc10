@@ -35,9 +35,9 @@ public class UserFactory extends SPECCHIOFactory {
 	 * 
 	 * @throws SPECCHIOFactoryException	could not establish initial context
 	 */
-	public UserFactory() throws SPECCHIOFactoryException {
+	public UserFactory(String ds_name) throws SPECCHIOFactoryException {
 		
-		super();
+		super(ds_name);
 		
 	}
 	
@@ -64,9 +64,9 @@ public class UserFactory extends SPECCHIOFactory {
 	 * 
 	 * @throws SPECCHIOFactoryException	could not establish initial context
 	 */
-	public UserFactory(String db_user, String db_password) throws SPECCHIOFactoryException {
+	public UserFactory(String db_user, String db_password, String ds_name) throws SPECCHIOFactoryException {
 
-		super(db_user, db_password);
+		super(db_user, db_password, ds_name);
 		
 	}
 	
@@ -215,7 +215,7 @@ public class UserFactory extends SPECCHIOFactory {
 			// prepare an SQL statement for testing for the existence of a username
 			PreparedStatement pstmt = getStatementBuilder().prepareStatement(
 					"select count(*) from (" +
-							"select user from specchio.specchio_user where user=?" +
+							"select user from specchio.specchio_user where user=?" + // TODO : we should check in the actual database, but till dynamic authentication works, this is our only option
 							" union " +
 							"select user from mysql.user where user=?" +
 					") as user"
@@ -666,6 +666,37 @@ public class UserFactory extends SPECCHIOFactory {
 				user.setUserId(rs.getInt(1));
 			}
 			rs.close();
+			
+			
+			/* FIX for non-dynamic realm authentification follows: if this is not the specchio schema, we */
+			/* need to insert into the specchio schema as well. Ideally, we would use OAuth1ClientSupport */
+			/* This allows the use of multiple database instances on the same server                      */
+			if(!getDatabaseName().equals("specchio"))
+			{
+				// update user table
+				query = "insert into specchio.specchio_user(user,first_name,last_name,institute_id,email,www,admin,password,external_id) values(" +
+						SQL.quote_string(user.getUsername()) + "," +
+						SQL.quote_string(user.getFirstName()) + "," +
+						SQL.quote_string(user.getLastName()) + "," +
+						instIdString + "," +
+						SQL.quote_string(user.getEmailAddress()) + "," +
+						SQL.quote_string(user.getWwwAddress()) + "," +
+						(user.isInRole(UserRoles.ADMIN)? "1" : "0") + "," +
+						"MD5(" + SQL.quote_string(user.getPassword()) + ")," +
+						SQL.quote_string(user.getExternalId()) +
+					")";
+				stmt.executeUpdate(query);
+				
+				// update group table
+				query = "insert into specchio.specchio_user_group(user,group_name) values(" +
+						SQL.quote_string(user.getUsername()) + "," +
+						SQL.quote_string(user.getRole()) +
+						")";
+				stmt.executeUpdate(query);				
+				
+			}
+			
+			
 			
 			// clean up
 			stmt.close();
